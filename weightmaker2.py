@@ -4,12 +4,15 @@ import time
 import threading
 import serial
 
-from PyQt5.QtWidgets import QWidget, QBoxLayout, QLabel, QApplication, QLineEdit, QPushButton
+from PyQt5.QtWidgets import (
+    QWidget, QApplication, QLabel, QLineEdit, QPushButton,
+    QBoxLayout, QVBoxLayout, QHBoxLayout, QSizePolicy
+)
 from PyQt5.QtCore import Qt, QThread, pyqtSlot, pyqtSignal
 
 # ===== 설정값 =====
 MIN_TARGET = 2000
-MAX_TARGET = 10000   # 요청: 2000~10000으로 조정
+MAX_TARGET = 10000    # 요청: 2000~10000
 STEP_MIN = 300
 STEP_MAX = 500
 # ==================
@@ -21,7 +24,10 @@ class firstthread(threading.Thread):
     def run(self):
         global weight, se, status
         while status != 0:
-            se.write(bytes(status + ',NT,+' + str(weight).zfill(5) + '.0kg', 'utf-8'))
+            try:
+                se.write(bytes(status + ',NT,+' + str(weight).zfill(5) + '.0kg', 'utf-8'))
+            except Exception:
+                pass
             time.sleep(0.2)
 
 class SerialThread(QThread):
@@ -29,7 +35,7 @@ class SerialThread(QThread):
     def run(self):
         global weight, status
         while status != 0:
-            text = status + ',NT,+' + str(weight).zfill(5)+'.0kg'
+            text = status + ',NT,+' + str(weight).zfill(5) + '.0kg'
             self.change_data_signal.emit(text)
             time.sleep(0.1)
 
@@ -71,26 +77,35 @@ class Thread2(QThread):
 class SecondWindow(QWidget):
     def __init__(self):
         super().__init__()
+        self.resize(560, 220)
+
+        # 표시 라벨
         self.weightlabel = QLabel("SN, NT, +0000.0 kg", self)
-        self.weightlabel.move(160, 0)
+        self.weightlabel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
         self.targetlabel = QLabel("Target: -", self)
-        self.targetlabel.move(160, 25)
+        self.targetlabel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-        self.resize(520, 310)
-
+        # 버튼
         self.pb_up = QPushButton("up", self)
-        self.pb_up.move(0, 60)
-        self.pb_up.resize(170, 230)
-
         self.pb_down = QPushButton("down", self)
-        self.pb_down.move(175, 60)
-        self.pb_down.resize(170, 230)
-
         self.pb_stop = QPushButton("stop", self)
-        self.pb_stop.move(350, 60)
-        self.pb_stop.resize(170, 230)
 
-        # 시리얼 송신용 쓰레드
+        # 레이아웃 구성
+        top_box = QVBoxLayout()
+        top_box.addWidget(self.weightlabel)
+        top_box.addWidget(self.targetlabel)
+
+        btn_box = QHBoxLayout()
+        btn_box.addWidget(self.pb_up)
+        btn_box.addWidget(self.pb_down)
+        btn_box.addWidget(self.pb_stop)
+
+        root = QVBoxLayout(self)
+        root.addLayout(top_box)
+        root.addLayout(btn_box)
+
+        # 시리얼 송신 쓰레드
         self.serialThread = SerialThread()
         self.serialThread.change_data_signal.connect(self.update_data)
         self.serialThread.start()
@@ -100,21 +115,19 @@ class SecondWindow(QWidget):
         self.pb_down.clicked.connect(self.handle_down)
         self.pb_stop.clicked.connect(self.handle_stop)
 
-        # 현재 동작 쓰레드 핸들(재시작 문제 방지)
+        # 현재 동작 쓰레드 핸들
         self.upthread = None
         self.downthread = None
 
     def _cleanup_threads(self):
-        # flag를 바꿔 루프를 빠져나오게 한 뒤, 이미 끝난 쓰레드는 레퍼런스만 제거
         global flag, status
         flag = 0
         status = 'ST'
-        # 레퍼런스 정리 (실제 종료는 루프에서 return 되며 이루어짐)
         self.upthread = None
         self.downthread = None
 
     def handle_up(self):
-        # 동시 실행 방지: 기존 동작 중이면 먼저 중단
+        # 동시 실행 방지
         self._cleanup_threads()
         # 새 up 쓰레드 생성
         self.upthread = Thread1()
@@ -122,13 +135,14 @@ class SecondWindow(QWidget):
         self.upthread.start()
 
     def handle_down(self):
-        # 동시 실행 방지: 기존 동작 중이면 먼저 중단
+        # 동시 실행 방지
         self._cleanup_threads()
         # 새 down 쓰레드 생성
         self.downthread = Thread2()
         self.downthread.start()
 
     def handle_stop(self):
+        # 즉시 정지
         self._cleanup_threads()
         self.targetlabel.setText("Target: -")
 
@@ -139,11 +153,10 @@ class SecondWindow(QWidget):
     @pyqtSlot(str)
     def update_data(self, str_data):
         global se
-        print(str_data)
         try:
-            se.write(bytes(str_data + '\r\n', 'utf-8'))
+            if se:
+                se.write(bytes(str_data + '\r\n', 'utf-8'))
         except Exception:
-            # 시리얼이 아직 열리기 전일 수 있음
             pass
         self.weightlabel.setText(str_data)
 
@@ -175,8 +188,10 @@ class Form(QWidget):
         global se, status
         self.w = SecondWindow()
         time.sleep(1)
-        # 시리얼 포트 오픈
-        se = serial.Serial(self.cb_port.text(), self.cb_baud_rate.text())
+        try:
+            se = serial.Serial(self.cb_port.text(), self.cb_baud_rate.text())
+        except Exception:
+            se = None  # 시리얼 미연결 상태에서도 UI 동작하도록
         status = 'ST'
         self.w.show()
 
