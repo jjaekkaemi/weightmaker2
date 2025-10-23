@@ -15,7 +15,9 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtWidgets import QLineEdit
 from PyQt5.QtCore import Qt, QThread, pyqtSlot, pyqtSignal
 
-
+# ===== 설정값 =====
+MIN_TARGET = 2000
+MAX_TARGET = 10000    # 요청: 2000~10000
 class firstthread(threading.Thread):
     def __init__(self, name):
         super().__init__()
@@ -49,7 +51,8 @@ class Thread1(QThread):
         global weight, status, flag
         flag = 3
         # max value
-        while weight < 2000:
+        target = random.randint(MIN_TARGET, MAX_TARGET)  # 목표값 난수
+        while weight < target:
             if flag is not 3:
                 return
             status = 'US'
